@@ -1,8 +1,7 @@
 <?php
 try {
-    $conn = new PDO(
-        "sqlite:D:/Xampp/htdocs/Glaciers/database/glaciers.db"
-    );
+    $dbPath = __DIR__ . "/database/glaciers.db";
+    $conn = new PDO("sqlite:" . $dbPath);
     $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 } catch (PDOException $e) {
     die("Database connection failed: " . $e->getMessage());
