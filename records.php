@@ -86,7 +86,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
     }
 
-    header("Location: record.php?date=$selected_date&saved=1");
+    header("Location: records.php?date=$selected_date&saved=1");
     exit;
 }
 ?>
