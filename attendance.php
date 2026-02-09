@@ -186,7 +186,7 @@ input[type="text"], input[type="date"] {
 <div class="header">
     <div>❄ Attendance Management</div>
     <div>
-        <a class="back-btn" href="record.php">📊 Records</a>
+        <a class="back-btn" href="records.php">📊 Records</a>
         <a class="back-btn" href="admin.php">⬅ Admin</a>
     </div>
 </div>
