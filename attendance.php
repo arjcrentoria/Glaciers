@@ -25,14 +25,12 @@ $members = $conn->query("
 $fixed_events = ["SPM", "SS", "AM", "YP", "PM"];
 
 /* ===============================
-   SAVE ATTENDANCE (BULK)
+   SAVE ATTENDANCE
 ================================ */
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
-    // ✅ USE SELECTED DATE (for late attendance)
     $event_date = $_POST["attendance_date"] ?? date("Y-m-d");
 
-    /* FIXED EVENTS */
     foreach ($fixed_events as $event_name) {
 
         $stmt = $conn->prepare("
@@ -54,7 +52,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
     }
 
-    /* SPECIAL EVENT */
     if (!empty($_POST["special_event"])) {
 
         $stmt = $conn->prepare("
@@ -81,7 +78,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 ?>
 
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>Attendance</title>
@@ -92,7 +89,6 @@ body {
     background: #eef7ff;
     margin: 0;
 }
-
 .header {
     background: linear-gradient(135deg, #4db8ff, #6fd3ff);
     padding: 18px 25px;
@@ -101,41 +97,29 @@ body {
     justify-content: space-between;
     align-items: center;
 }
-
 .back-btn {
     color: white;
     text-decoration: none;
     font-size: 14px;
     font-weight: bold;
 }
-
-.container {
-    padding: 25px;
-}
-
+.container { padding: 25px; }
 .card {
     background: white;
     border-radius: 16px;
     padding: 20px;
     box-shadow: 0 10px 25px rgba(0,0,0,0.08);
 }
-
 table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 14px;
 }
-
 th, td {
     padding: 10px;
     border-bottom: 1px solid #eee;
     text-align: center;
 }
-
-th {
-    background: #f0f8ff;
-}
-
+th { background: #f0f8ff; }
 button {
     margin-top: 15px;
     padding: 12px 20px;
@@ -146,17 +130,7 @@ button {
     font-weight: bold;
     cursor: pointer;
 }
-
-.success {
-    color: green;
-    margin-bottom: 10px;
-}
-
-input[type="text"], input[type="date"] {
-    padding: 8px;
-    border-radius: 6px;
-    border: 1px solid #ccc;
-}
+.success { color: green; }
 </style>
 </head>
 
@@ -164,37 +138,38 @@ input[type="text"], input[type="date"] {
 
 <div class="header">
     <div>❄ Attendance Management</div>
-    <a class="back-btn" href="admin.php">⬅ Back to Admin</a>
+    <div>
+        <a class="back-btn" href="admin.php">⬅ Back</a>
+        &nbsp; | &nbsp;
+        <a class="back-btn" href="records.php">📊 Records</a>
+    </div>
 </div>
 
 <div class="container">
 <div class="card">
 
 <h2>Youth Attendance</h2>
-
 <?php if (isset($success)) echo "<div class='success'>$success</div>"; ?>
 
 <form method="post">
 
-<!-- ✅ DATE SELECTOR (FOR LATE ATTENDANCE) -->
+<!-- 🔼 SAVE BUTTON (TOP) -->
+<button type="submit">Save Attendance</button><br><br>
+
 <label><strong>Attendance Date:</strong></label><br>
-<input type="date" name="attendance_date" value="<?= date('Y-m-d') ?>" required>
-<br><br>
+<input type="date" name="attendance_date" value="<?= date('Y-m-d') ?>" required><br><br>
 
 <table>
 <tr>
     <th>Name</th>
-    <th>SPM</th>
-    <th>SS</th>
-    <th>AM</th>
-    <th>YP</th>
-    <th>PM</th>
+    <?php foreach ($fixed_events as $e): ?>
+        <th><?= $e ?></th>
+    <?php endforeach; ?>
 </tr>
 
 <?php foreach ($members as $m): ?>
 <tr>
     <td><?= htmlspecialchars($m["full_name"]) ?></td>
-
     <?php foreach ($fixed_events as $e): ?>
         <td>
             <input type="checkbox"
@@ -209,12 +184,8 @@ input[type="text"], input[type="date"] {
 <h3 style="margin-top:25px;">Special Event</h3>
 <input type="text" name="special_event" placeholder="Event name">
 
-<table style="margin-top:10px;">
-<tr>
-    <th>Name</th>
-    <th>Present</th>
-</tr>
-
+<table>
+<tr><th>Name</th><th>Present</th></tr>
 <?php foreach ($members as $m): ?>
 <tr>
     <td><?= htmlspecialchars($m["full_name"]) ?></td>
@@ -227,10 +198,10 @@ input[type="text"], input[type="date"] {
 <?php endforeach; ?>
 </table>
 
+<!-- 🔽 SAVE BUTTON (BOTTOM) -->
 <button type="submit">Save Attendance</button>
 
 </form>
-
 </div>
 </div>
 
