@@ -2,6 +2,9 @@
 require "auth.php";
 require "db.php";
 
+/* ===============================
+   PROTECT ADMIN
+================================ */
 if (!isset($_SESSION["role"]) || $_SESSION["role"] !== "admin") {
     header("Location: login.php");
     exit;
@@ -13,7 +16,7 @@ if (!isset($_SESSION["role"]) || $_SESSION["role"] !== "admin") {
 $selected_date = $_GET["date"] ?? date("Y-m-d");
 
 /* ===============================
-   FETCH MEMBERS (AUTO-UPDATED)
+   FETCH MEMBERS
 ================================ */
 $members = $conn->query("
     SELECT id, full_name
@@ -22,32 +25,25 @@ $members = $conn->query("
 ")->fetchAll(PDO::FETCH_ASSOC);
 
 /* ===============================
-   FETCH EVENTS FOR DATE
+   EVENTS
 ================================ */
-$events = $conn->prepare("
-    SELECT id, event_name
-    FROM events
-    WHERE event_date = ?
-    ORDER BY event_name
-");
-$events->execute([$selected_date]);
-$events = $events->fetchAll(PDO::FETCH_ASSOC);
+$fixed_events = ["SPM", "SS", "AM", "YP", "PM"];
 
 /* ===============================
    FETCH EXISTING ATTENDANCE
 ================================ */
-$attendance = [];
+$attendance_data = [];
+
 $stmt = $conn->prepare("
-    SELECT event_id, member_id, present
-    FROM attendance
-    WHERE event_id IN (
-        SELECT id FROM events WHERE event_date = ?
-    )
+    SELECT a.member_id, e.event_name, a.present
+    FROM attendance a
+    JOIN events e ON e.id = a.event_id
+    WHERE e.event_date = ?
 ");
 $stmt->execute([$selected_date]);
 
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-    $attendance[$row["event_id"]][$row["member_id"]] = $row["present"];
+    $attendance_data[$row["event_name"]][$row["member_id"]] = $row["present"];
 }
 
 /* ===============================
@@ -55,26 +51,48 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
 ================================ */
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
-    foreach ($events as $e) {
-        foreach ($members as $m) {
+    foreach ($fixed_events as $event_name) {
 
-            $present = isset($_POST["attendance"][$e["id"]][$m["id"]]) ? 1 : 0;
+        /* GET OR CREATE EVENT */
+        $stmt = $conn->prepare("
+            SELECT id FROM events
+            WHERE event_name = ? AND event_date = ?
+        ");
+        $stmt->execute([$event_name, $selected_date]);
+        $event_id = $stmt->fetchColumn();
+
+        if (!$event_id) {
+            $stmt = $conn->prepare("
+                INSERT INTO events (event_name, event_date)
+                VALUES (?, ?)
+            ");
+            $stmt->execute([$event_name, $selected_date]);
+            $event_id = $conn->lastInsertId();
+        }
+
+        /* CLEAR OLD DATA */
+        $stmt = $conn->prepare("DELETE FROM attendance WHERE event_id = ?");
+        $stmt->execute([$event_id]);
+
+        /* INSERT UPDATED DATA */
+        foreach ($members as $m) {
+            $present = isset($_POST["attendance"][$event_name][$m["id"]]) ? 1 : 0;
 
             $stmt = $conn->prepare("
-                UPDATE attendance
-                SET present = ?
-                WHERE event_id = ? AND member_id = ?
+                INSERT INTO attendance (member_id, event_id, present)
+                VALUES (?, ?, ?)
             ");
-            $stmt->execute([$present, $e["id"], $m["id"]]);
+            $stmt->execute([$m["id"], $event_id, $present]);
         }
     }
 
-    $success = "Attendance updated successfully!";
+    header("Location: record.php?date=$selected_date&saved=1");
+    exit;
 }
 ?>
 
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>Edit Attendance Records</title>
@@ -85,43 +103,32 @@ body {
     background: #eef7ff;
     margin: 0;
 }
-
 .header {
     background: linear-gradient(135deg, #4db8ff, #6fd3ff);
     padding: 18px 25px;
     color: white;
     display: flex;
     justify-content: space-between;
-    align-items: center;
 }
-
-.container {
-    padding: 25px;
-}
-
+.container { padding: 25px; }
 .card {
     background: white;
     border-radius: 16px;
     padding: 20px;
     box-shadow: 0 10px 25px rgba(0,0,0,0.08);
 }
-
 table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 14px;
 }
-
 th, td {
     padding: 10px;
     border-bottom: 1px solid #eee;
     text-align: center;
 }
-
 th {
     background: #f0f8ff;
 }
-
 button {
     margin-top: 15px;
     padding: 12px 20px;
@@ -132,16 +139,9 @@ button {
     font-weight: bold;
     cursor: pointer;
 }
-
 .success {
     color: green;
     margin-bottom: 10px;
-}
-
-input[type="date"] {
-    padding: 8px;
-    border-radius: 6px;
-    border: 1px solid #ccc;
 }
 </style>
 </head>
@@ -149,30 +149,34 @@ input[type="date"] {
 <body>
 
 <div class="header">
-    <div>📊 Edit Attendance Records</div>
-    <a style="color:white;text-decoration:none;font-weight:bold;" href="attendance.php">⬅ Back</a>
+    <div>📊 Attendance Records</div>
+    <a href="admin.php" style="color:white;text-decoration:none;">⬅ Back</a>
 </div>
 
 <div class="container">
 <div class="card">
 
-<?php if (isset($success)) echo "<div class='success'>$success</div>"; ?>
+<h2>Edit Attendance</h2>
+
+<?php if (isset($_GET["saved"])): ?>
+<div class="success">Records updated successfully!</div>
+<?php endif; ?>
 
 <form method="get">
-    <label><strong>Select Date:</strong></label><br>
-    <input type="date" name="date" value="<?= htmlspecialchars($selected_date) ?>">
-    <button type="submit">Load</button>
+<label><strong>Select Date:</strong></label><br>
+<input type="date" name="date" value="<?= $selected_date ?>" required>
+<button type="submit">Load</button>
 </form>
 
-<?php if ($events): ?>
+<hr>
 
 <form method="post">
 
 <table>
 <tr>
     <th>Name</th>
-    <?php foreach ($events as $e): ?>
-        <th><?= htmlspecialchars($e["event_name"]) ?></th>
+    <?php foreach ($fixed_events as $e): ?>
+        <th><?= $e ?></th>
     <?php endforeach; ?>
 </tr>
 
@@ -180,26 +184,20 @@ input[type="date"] {
 <tr>
     <td><?= htmlspecialchars($m["full_name"]) ?></td>
 
-    <?php foreach ($events as $e): ?>
+    <?php foreach ($fixed_events as $e): ?>
         <td>
             <input type="checkbox"
-                   name="attendance[<?= $e['id'] ?>][<?= $m['id'] ?>]"
-                   value="1"
-                   <?= !empty($attendance[$e["id"]][$m["id"]]) ? "checked" : "" ?>>
+                   name="attendance[<?= $e ?>][<?= $m['id'] ?>]"
+                   <?= !empty($attendance_data[$e][$m["id"]]) ? "checked" : "" ?>>
         </td>
     <?php endforeach; ?>
 </tr>
 <?php endforeach; ?>
-
 </table>
 
 <button type="submit">Save Changes</button>
 
 </form>
-
-<?php else: ?>
-<p>No attendance records found for this date.</p>
-<?php endif; ?>
 
 </div>
 </div>
