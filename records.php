@@ -2,58 +2,70 @@
 require "auth.php";
 require "db.php";
 
-if (!isset($_SESSION["role"])) {
+if (!isset($_SESSION["role"]) || $_SESSION["role"] !== "admin") {
     header("Location: login.php");
     exit;
 }
 
-$date = $_GET["date"] ?? date("Y-m-d");
+/* ===============================
+   SELECT DATE
+================================ */
+$selected_date = $_GET["date"] ?? date("Y-m-d");
 
-/* MEMBERS */
+/* ===============================
+   FETCH MEMBERS (AUTO-UPDATED)
+================================ */
 $members = $conn->query("
     SELECT id, full_name
     FROM members
     ORDER BY full_name
 ")->fetchAll(PDO::FETCH_ASSOC);
 
-/* EVENTS ON SELECTED DATE */
+/* ===============================
+   FETCH EVENTS FOR DATE
+================================ */
 $events = $conn->prepare("
     SELECT id, event_name
     FROM events
     WHERE event_date = ?
     ORDER BY event_name
 ");
-$events->execute([$date]);
+$events->execute([$selected_date]);
 $events = $events->fetchAll(PDO::FETCH_ASSOC);
 
-/* EXISTING ATTENDANCE */
+/* ===============================
+   FETCH EXISTING ATTENDANCE
+================================ */
 $attendance = [];
 $stmt = $conn->prepare("
-    SELECT member_id, event_id, present
-    FROM attendance a
-    JOIN events e ON e.id = a.event_id
-    WHERE e.event_date = ?
+    SELECT event_id, member_id, present
+    FROM attendance
+    WHERE event_id IN (
+        SELECT id FROM events WHERE event_date = ?
+    )
 ");
-$stmt->execute([$date]);
-foreach ($stmt as $row) {
+$stmt->execute([$selected_date]);
+
+foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     $attendance[$row["event_id"]][$row["member_id"]] = $row["present"];
 }
 
-/* SAVE CHANGES */
+/* ===============================
+   SAVE EDITED RECORDS
+================================ */
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
-    foreach ($_POST["attendance"] ?? [] as $event_id => $members_data) {
+    foreach ($events as $e) {
+        foreach ($members as $m) {
 
-        foreach ($members_data as $member_id => $value) {
-
-            $present = $value == "1" ? 1 : 0;
+            $present = isset($_POST["attendance"][$e["id"]][$m["id"]]) ? 1 : 0;
 
             $stmt = $conn->prepare("
                 UPDATE attendance
                 SET present = ?
                 WHERE event_id = ? AND member_id = ?
             ");
-            $stmt->execute([$present, $event_id, $member_id]);
+            $stmt->execute([$present, $e["id"], $m["id"]]);
         }
     }
 
@@ -62,52 +74,74 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 ?>
 
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>Edit Attendance Records</title>
 
 <style>
 body {
-    font-family: Arial;
-    background:#eef7ff;
-    margin:0;
+    font-family: "Segoe UI", Arial;
+    background: #eef7ff;
+    margin: 0;
 }
+
 .header {
-    background:#4db8ff;
-    padding:15px 20px;
-    color:white;
-    display:flex;
-    justify-content:space-between;
+    background: linear-gradient(135deg, #4db8ff, #6fd3ff);
+    padding: 18px 25px;
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
+
 .container {
-    padding:25px;
+    padding: 25px;
 }
+
+.card {
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+}
+
 table {
-    width:100%;
-    border-collapse:collapse;
-    background:white;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
 }
+
 th, td {
-    padding:10px;
-    border-bottom:1px solid #ddd;
-    text-align:center;
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    text-align: center;
 }
+
 th {
-    background:#f0f8ff;
+    background: #f0f8ff;
 }
+
 button {
-    padding:10px 18px;
-    border:none;
-    background:#4db8ff;
-    color:white;
-    border-radius:8px;
-    font-weight:bold;
-    cursor:pointer;
+    margin-top: 15px;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 10px;
+    background: #4db8ff;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
 }
+
 .success {
-    color:green;
-    margin-bottom:10px;
+    color: green;
+    margin-bottom: 10px;
+}
+
+input[type="date"] {
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
 }
 </style>
 </head>
@@ -116,22 +150,22 @@ button {
 
 <div class="header">
     <div>📊 Edit Attendance Records</div>
-    <a href="attendance.php" style="color:white;text-decoration:none;">⬅ Back</a>
+    <a style="color:white;text-decoration:none;font-weight:bold;" href="attendance.php">⬅ Back</a>
 </div>
 
 <div class="container">
+<div class="card">
 
 <?php if (isset($success)) echo "<div class='success'>$success</div>"; ?>
 
 <form method="get">
-    <label><strong>Select Date:</strong></label>
-    <input type="date" name="date" value="<?= $date ?>">
+    <label><strong>Select Date:</strong></label><br>
+    <input type="date" name="date" value="<?= htmlspecialchars($selected_date) ?>">
     <button type="submit">Load</button>
 </form>
 
-<br>
-
 <?php if ($events): ?>
+
 <form method="post">
 
 <table>
@@ -159,14 +193,16 @@ button {
 
 </table>
 
-<br>
 <button type="submit">Save Changes</button>
 
 </form>
+
 <?php else: ?>
 <p>No attendance records found for this date.</p>
 <?php endif; ?>
 
 </div>
+</div>
+
 </body>
 </html>
