@@ -8,12 +8,19 @@ if (!isset($_SESSION["role"]) || $_SESSION["role"] !== "admin") {
     exit;
 }
 
+/* GLOBAL DELETE HANDLER */
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['global_reset_all'])) {
+    // Permanently wipes the offerings table
+    try {
+        $conn->exec("DELETE FROM offerings");
+        $success = "🧨 ALL offering records have been permanently deleted.";
+    } catch (Exception $e) {
+        $error = "Error: " . $e->getMessage();
+    }
+}
+
 /* FETCH MEMBERS */
-$members = $conn->query("
-    SELECT id, full_name 
-    FROM members 
-    ORDER BY full_name
-")->fetchAll(PDO::FETCH_ASSOC);
+$members = $conn->query("SELECT id, full_name FROM members ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
 
 /* GET ALL SUNDAYS OF 2026 */
 $sundays = [];
@@ -24,20 +31,19 @@ while ($date->format("Y") == "2026") {
     $date->modify("+7 days");
 }
 
-/* SAVE DATA */
-if ($_SERVER["REQUEST_METHOD"] === "POST") {
-
-    /* SAVE SUNDAY OFFERINGS */
+/* SAVE DATA LOGIC */
+if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['global_reset_all'])) {
+    // 1. Save Sunday Offerings
     if (!empty($_POST["offering"])) {
         foreach ($_POST["offering"] as $member_id => $dates) {
             foreach ($dates as $offering_date => $amount) {
-
                 if ($amount === "" || !is_numeric($amount)) continue;
-
+                
+                // SQLite friendly Upsert logic
                 $stmt = $conn->prepare("
                     INSERT INTO offerings (member_id, offering_date, amount, event_name)
                     VALUES (?, ?, ?, NULL)
-                    ON CONFLICT(member_id, offering_date)
+                    ON CONFLICT(member_id, offering_date) WHERE event_name IS NULL
                     DO UPDATE SET amount = excluded.amount
                 ");
                 $stmt->execute([$member_id, $offering_date, $amount]);
@@ -45,162 +51,198 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
     }
 
-    /* SAVE SPECIAL EVENT OFFERING */
+    // 2. Save Special Events
     if (!empty($_POST["event_name"]) && !empty($_POST["event_date"])) {
-
         $event_name = $_POST["event_name"];
         $event_date = $_POST["event_date"];
-
         foreach ($_POST["special"] ?? [] as $member_id => $amount) {
-
             if ($amount === "" || !is_numeric($amount)) continue;
-
-            $stmt = $conn->prepare("
-                INSERT INTO offerings (member_id, offering_date, amount, event_name)
-                VALUES (?, ?, ?, ?)
-            ");
+            
+            $stmt = $conn->prepare("INSERT INTO offerings (member_id, offering_date, amount, event_name) VALUES (?, ?, ?, ?)");
             $stmt->execute([$member_id, $event_date, $amount, $event_name]);
         }
     }
-
-    $success = "Offerings saved successfully!";
+    $success = "✅ Offerings saved successfully!";
 }
 
-/* FETCH EXISTING OFFERINGS */
+/* FETCH EXISTING DATA FOR DISPLAY */
 $existing = [];
 $stmt = $conn->query("SELECT * FROM offerings WHERE event_name IS NULL");
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     $existing[$row["member_id"]][$row["offering_date"]] = $row["amount"];
 }
 ?>
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Offerings 2026</title>
-
 <style>
-body { margin:0; font-family:Segoe UI, Arial; background:#eef7ff }
-.header {
-    background:linear-gradient(135deg,#4db8ff,#6fd3ff);
-    padding:18px 25px;
-    color:white;
-    font-size:22px;
-    display:flex;
-    justify-content:space-between;
-}
-.header a { color:white; text-decoration:none; font-size:14px }
-.container { padding:25px }
-.card {
-    background:white;
-    border-radius:16px;
-    padding:20px;
-    box-shadow:0 10px 25px rgba(0,0,0,.08);
-    overflow-x:auto;
-    margin-bottom:25px;
-}
-table {
-    border-collapse:collapse;
-    font-size:13px;
-    min-width:1200px;
-}
-th, td {
-    padding:8px;
-    border-bottom:1px solid #eee;
-    text-align:center;
-}
-th { background:#f0f8ff; position:sticky; top:0 }
-input[type="number"], input[type="text"], input[type="date"] {
-    padding:6px;
-    border-radius:6px;
-    border:1px solid #ccc;
-}
-button {
-    margin-top:15px;
-    padding:12px 20px;
-    border:none;
-    border-radius:10px;
-    background:#4db8ff;
-    color:white;
-    font-weight:bold;
-}
-.success { color:green; margin-bottom:10px }
+    * { box-sizing: border-box; font-family: "Segoe UI", Arial, sans-serif; }
+    body { margin: 0; background: #eef7ff; color: #333; }
+    
+    /* Header UI */
+    .header { 
+        background: linear-gradient(135deg, #4db8ff, #6fd3ff); 
+        padding: 16px 20px; color: white; 
+        display: flex; justify-content: space-between; align-items: center; 
+        position: sticky; top: 0; z-index: 1000; 
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+    }
+    .header-btns { display: flex; gap: 10px; }
+    .header a, .btn-danger-top { color: white; text-decoration: none; font-weight: bold; padding: 8px 12px; border-radius: 8px; font-size: 13px; border: none; cursor: pointer; transition: 0.2s; }
+    .btn-nav { background: rgba(0,0,0,0.1); }
+    .btn-danger-top { background: #d32f2f; }
+    .btn-danger-top:hover { background: #b71c1c; transform: scale(1.05); }
+    
+    .container { padding: 20px; max-width: 1400px; margin: auto; }
+    .card { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); margin-bottom: 25px; }
+    h2 { color: #0088cc; border-left: 5px solid #4db8ff; padding-left: 10px; margin-top: 0; }
+    
+    /* Table Styling */
+    .table-wrap { width: 100%; overflow-x: auto; border: 1px solid #eee; border-radius: 10px; }
+    table { border-collapse: collapse; font-size: 13px; min-width: 1200px; width: 100%; }
+    th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: center; }
+    th { background: #f0f8ff; position: sticky; top: 0; z-index: 10; border-bottom: 2px solid #4db8ff; }
+    
+    /* Sticky Name Column */
+    .sticky-name { 
+        position: sticky; left: 0; background: white; z-index: 11; 
+        text-align: left !important; font-weight: bold; 
+        border-right: 2px solid #eef7ff; min-width: 180px; 
+    }
+    th.sticky-name { z-index: 12; background: #f0f8ff; }
+    
+    /* Row Selection Effects */
+    tr.selected td { background-color: #d1ecff !important; }
+    tr.selected .sticky-name { background-color: #d1ecff !important; }
+    tr:hover td:not(.sticky-name) { background-color: #f5fbff; }
+    
+    input { padding: 6px; border-radius: 6px; border: 1px solid #ccc; width: 75px; text-align: center; transition: 0.2s; }
+    input:focus { border-color: #4db8ff; outline: none; background: #fff; box-shadow: 0 0 5px rgba(77,184,255,0.3); }
+    
+    /* Action Buttons */
+    .btn-save { padding: 14px 25px; border: none; border-radius: 12px; background: #2e7d32; color: white; font-weight: bold; cursor: pointer; width: 100%; font-size: 16px; margin-top: 15px; transition: 0.3s; }
+    .btn-save:hover { background: #1b5e20; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+    
+    .success { background: #e8f5e9; color: #2e7d32; padding: 15px; border-radius: 10px; margin-bottom: 20px; text-align: center; font-weight: bold; border: 1px solid #c8e6c9; }
 </style>
 </head>
-
 <body>
 
 <div class="header">
-    <div>❄ Offerings – 2026</div>
-    <a href="admin.php">← Back to Admin</a>
+    <div>❄ 2026 Offerings Dashboard</div>
+    <div class="header-btns">
+        <form method="post" onsubmit="return confirmGlobalReset()">
+            <input type="hidden" name="global_reset_all" value="1">
+            <button type="submit" class="btn-danger-top">⚠️ Reset All Data</button>
+        </form>
+        <a href="admin.php" class="btn-nav">← Back</a>
+    </div>
 </div>
 
 <div class="container">
+    <?php if (isset($success)) echo "<div class='success'>$success</div>"; ?>
+    <?php if (isset($error)) echo "<div class='success' style='background:#ffebee; color:#c62828; border-color:#ef9a9a;'>$error</div>"; ?>
+    
+    <div class="card">
+        <h2>Sunday Offerings (2026)</h2>
+        <p style="font-size: 0.8rem; color: #666; margin-bottom: 15px;">* Click a name to highlight. Only filled boxes will be saved to the database.</p>
+        
+        <form method="post" onsubmit="cleanForm(this)">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="sticky-name">Full Name</th>
+                            <?php foreach ($sundays as $d): ?>
+                                <th><?= date("M j", strtotime($d)) ?></th>
+                            <?php endforeach; ?>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($members as $m): ?>
+                        <tr onclick="toggleRow(this, event)">
+                            <td class="sticky-name"><?= htmlspecialchars($m["full_name"]) ?></td>
+                            <?php foreach ($sundays as $d): ?>
+                            <td>
+                                <input type="number" step="0.01" 
+                                       name="offering[<?= $m["id"] ?>][<?= $d ?>]" 
+                                       value="<?= $existing[$m["id"]][$d] ?? "" ?>" 
+                                       onclick="event.stopPropagation()">
+                            </td>
+                            <?php endforeach; ?>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn-save">💾 Save Sunday Offerings</button>
+        </form>
+    </div>
 
-<?php if (isset($success)) echo "<div class='success'>$success</div>"; ?>
-
-<!-- ================= SUNDAY OFFERINGS ================= -->
-<div class="card">
-<h2>Sunday Offerings (2026)</h2>
-
-<form method="post">
-<table>
-<tr>
-    <th>Name</th>
-    <?php foreach ($sundays as $d): ?>
-        <th><?= date("M j", strtotime($d)) ?></th>
-    <?php endforeach; ?>
-</tr>
-
-<?php foreach ($members as $m): ?>
-<tr>
-    <td><?= htmlspecialchars($m["full_name"]) ?></td>
-    <?php foreach ($sundays as $d): ?>
-    <td>
-        <input type="number" step="0.01"
-        name="offering[<?= $m["id"] ?>][<?= $d ?>]"
-        value="<?= $existing[$m["id"]][$d] ?? "" ?>">
-    </td>
-    <?php endforeach; ?>
-</tr>
-<?php endforeach; ?>
-</table>
-
-<button type="submit">Save Sunday Offerings</button>
-</form>
+    <div class="card">
+        <h2>Special Event Offering</h2>
+        <form method="post" onsubmit="cleanForm(this)">
+            <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items:center; flex-wrap:wrap;">
+                <input type="text" name="event_name" placeholder="Event Name (e.g. Youth Camp)" required style="width: 250px; text-align:left;">
+                <input type="date" name="event_date" required>
+            </div>
+            <div class="table-wrap">
+                <table style="min-width: 100%;">
+                    <thead>
+                        <tr>
+                            <th class="sticky-name">Name</th>
+                            <th>Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($members as $m): ?>
+                        <tr onclick="toggleRow(this, event)">
+                            <td class="sticky-name"><?= htmlspecialchars($m["full_name"]) ?></td>
+                            <td>
+                                <input type="number" step="0.01" name="special[<?= $m["id"] ?>]" 
+                                       style="width: 150px;" onclick="event.stopPropagation()">
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn-save" style="background: #ef6c00;">💰 Save Special Event Offering</button>
+        </form>
+    </div>
 </div>
 
-<!-- ================= SPECIAL EVENT ================= -->
-<div class="card">
-<h2>Special Event Offering</h2>
+<script>
+/**
+ * Prevents max_input_vars errors by disabling blank fields before submission.
+ */
+function cleanForm(f){ 
+    f.querySelectorAll('input[type="number"]').forEach(i => {
+        if(i.value === "") i.disabled = true;
+    }); 
+}
 
-<form method="post">
-<p>
-    <input type="text" name="event_name" placeholder="Event Name (e.g. Youth Camp)" required>
-    <input type="date" name="event_date" required>
-</p>
+/**
+ * Click-to-highlight row logic.
+ */
+function toggleRow(r, e){ 
+    if(!e.ctrlKey) document.querySelectorAll('tr.selected').forEach(x => x.classList.remove('selected')); 
+    r.classList.toggle('selected'); 
+}
 
-<table>
-<tr>
-    <th>Name</th>
-    <th>Offering</th>
-</tr>
-
-<?php foreach ($members as $m): ?>
-<tr>
-    <td><?= htmlspecialchars($m["full_name"]) ?></td>
-    <td>
-        <input type="number" step="0.01" name="special[<?= $m["id"] ?>]">
-    </td>
-</tr>
-<?php endforeach; ?>
-</table>
-
-<button type="submit">Save Special Event</button>
-</form>
-</div>
-
-</div>
+/**
+ * Double confirmation for the Global Reset button.
+ */
+function confirmGlobalReset() {
+    const first = confirm("🛑 CRITICAL WARNING: This will permanently delete EVERY offering record in the system. This cannot be undone. Proceed?");
+    if (first) {
+        return confirm("FINAL CONFIRMATION: Are you absolutely sure you want to wipe all data?");
+    }
+    return false;
+}
+</script>
 </body>
 </html>
