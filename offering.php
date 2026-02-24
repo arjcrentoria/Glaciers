@@ -10,7 +10,6 @@ if (!isset($_SESSION["role"]) || $_SESSION["role"] !== "admin") {
 
 /* GLOBAL DELETE HANDLER */
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['global_reset_all'])) {
-    // Permanently wipes the offerings table
     try {
         $conn->exec("DELETE FROM offerings");
         $success = "🧨 ALL offering records have been permanently deleted.";
@@ -33,13 +32,11 @@ while ($date->format("Y") == "2026") {
 
 /* SAVE DATA LOGIC */
 if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['global_reset_all'])) {
-    // 1. Save Sunday Offerings
     if (!empty($_POST["offering"])) {
         foreach ($_POST["offering"] as $member_id => $dates) {
             foreach ($dates as $offering_date => $amount) {
                 if ($amount === "" || !is_numeric($amount)) continue;
                 
-                // SQLite friendly Upsert logic
                 $stmt = $conn->prepare("
                     INSERT INTO offerings (member_id, offering_date, amount, event_name)
                     VALUES (?, ?, ?, NULL)
@@ -51,7 +48,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['global_reset_all']))
         }
     }
 
-    // 2. Save Special Events
     if (!empty($_POST["event_name"]) && !empty($_POST["event_date"])) {
         $event_name = $_POST["event_name"];
         $event_date = $_POST["event_date"];
@@ -65,7 +61,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['global_reset_all']))
     $success = "✅ Offerings saved successfully!";
 }
 
-/* FETCH EXISTING DATA FOR DISPLAY */
+/* FETCH EXISTING DATA */
 $existing = [];
 $stmt = $conn->query("SELECT * FROM offerings WHERE event_name IS NULL");
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -94,35 +90,71 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     .header a, .btn-danger-top { color: white; text-decoration: none; font-weight: bold; padding: 8px 12px; border-radius: 8px; font-size: 13px; border: none; cursor: pointer; transition: 0.2s; }
     .btn-nav { background: rgba(0,0,0,0.1); }
     .btn-danger-top { background: #d32f2f; }
-    .btn-danger-top:hover { background: #b71c1c; transform: scale(1.05); }
     
     .container { padding: 20px; max-width: 1400px; margin: auto; }
     .card { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); margin-bottom: 25px; }
     h2 { color: #0088cc; border-left: 5px solid #4db8ff; padding-left: 10px; margin-top: 0; }
     
-    /* Table Styling */
-    .table-wrap { width: 100%; overflow-x: auto; border: 1px solid #eee; border-radius: 10px; }
-    table { border-collapse: collapse; font-size: 13px; min-width: 1200px; width: 100%; }
-    th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: center; }
-    th { background: #f0f8ff; position: sticky; top: 0; z-index: 10; border-bottom: 2px solid #4db8ff; }
-    
-    /* Sticky Name Column */
-    .sticky-name { 
-        position: sticky; left: 0; background: white; z-index: 11; 
-        text-align: left !important; font-weight: bold; 
-        border-right: 2px solid #eef7ff; min-width: 180px; 
+    /* FIX: Scrollable Table Container */
+    .table-wrap { 
+        width: 100%; 
+        max-height: 70vh; /* Limits height so you don't scroll past the screen */
+        overflow: auto; 
+        border: 1px solid #eee; 
+        border-radius: 10px; 
     }
-    th.sticky-name { z-index: 12; background: #f0f8ff; }
+
+    /* FIX: Borders in Sticky Mode */
+    table { 
+        border-collapse: separate; 
+        border-spacing: 0; 
+        font-size: 13px; 
+        min-width: 1200px; 
+        width: 100%; 
+    }
     
-    /* Row Selection Effects */
+    th, td { 
+        padding: 10px; 
+        border-bottom: 1px solid #eee; 
+        border-right: 1px solid #f0f0f0;
+        text-align: center; 
+    }
+
+    /* FIX: Sticky Headers (Dates) */
+    th { 
+        background: #f0f8ff; 
+        position: sticky; 
+        top: 0; /* Sticks to the top of .table-wrap */
+        z-index: 100; 
+        border-bottom: 2px solid #4db8ff; 
+    }
+    
+    /* FIX: Sticky Name Column */
+    .sticky-name { 
+        position: sticky; 
+        left: 0; 
+        background: white; 
+        z-index: 110; 
+        text-align: left !important; 
+        font-weight: bold; 
+        border-right: 2px solid #eef7ff; 
+        min-width: 180px; 
+    }
+
+    /* Top-Left Corner Cell (Full Name header) */
+    th.sticky-name { 
+        z-index: 120; 
+        background: #f0f8ff; 
+        top: 0; 
+    }
+    
     tr.selected td { background-color: #d1ecff !important; }
     tr.selected .sticky-name { background-color: #d1ecff !important; }
     tr:hover td:not(.sticky-name) { background-color: #f5fbff; }
     
-    input { padding: 6px; border-radius: 6px; border: 1px solid #ccc; width: 75px; text-align: center; transition: 0.2s; }
+    input { padding: 6px; border-radius: 6px; border: 1px solid #ccc; width: 75px; text-align: center; }
     input:focus { border-color: #4db8ff; outline: none; background: #fff; box-shadow: 0 0 5px rgba(77,184,255,0.3); }
     
-    /* Action Buttons */
     .btn-save { padding: 14px 25px; border: none; border-radius: 12px; background: #2e7d32; color: white; font-weight: bold; cursor: pointer; width: 100%; font-size: 16px; margin-top: 15px; transition: 0.3s; }
     .btn-save:hover { background: #1b5e20; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
     
@@ -148,7 +180,7 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     
     <div class="card">
         <h2>Sunday Offerings (2026)</h2>
-        <p style="font-size: 0.8rem; color: #666; margin-bottom: 15px;">* Click a name to highlight. Only filled boxes will be saved to the database.</p>
+        <p style="font-size: 0.8rem; color: #666; margin-bottom: 15px;">* Scroll inside the box to see more dates. Names and Dates are locked while scrolling.</p>
         
         <form method="post" onsubmit="cleanForm(this)">
             <div class="table-wrap">
@@ -187,7 +219,7 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         <form method="post" onsubmit="cleanForm(this)">
             <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items:center; flex-wrap:wrap;">
                 <input type="text" name="event_name" placeholder="Event Name (e.g. Youth Camp)" required style="width: 250px; text-align:left;">
-                <input type="date" name="event_date" required>
+                <input type="date" name="event_date" required style="width: 150px;">
             </div>
             <div class="table-wrap">
                 <table style="min-width: 100%;">
@@ -216,30 +248,21 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
 </div>
 
 <script>
-/**
- * Prevents max_input_vars errors by disabling blank fields before submission.
- */
 function cleanForm(f){ 
     f.querySelectorAll('input[type="number"]').forEach(i => {
         if(i.value === "") i.disabled = true;
     }); 
 }
 
-/**
- * Click-to-highlight row logic.
- */
 function toggleRow(r, e){ 
     if(!e.ctrlKey) document.querySelectorAll('tr.selected').forEach(x => x.classList.remove('selected')); 
     r.classList.toggle('selected'); 
 }
 
-/**
- * Double confirmation for the Global Reset button.
- */
 function confirmGlobalReset() {
-    const first = confirm("🛑 CRITICAL WARNING: This will permanently delete EVERY offering record in the system. This cannot be undone. Proceed?");
+    const first = confirm("🛑 CRITICAL WARNING: This will permanently delete EVERY offering record in the system. Proceed?");
     if (first) {
-        return confirm("FINAL CONFIRMATION: Are you absolutely sure you want to wipe all data?");
+        return confirm("FINAL CONFIRMATION: Are you absolutely sure?");
     }
     return false;
 }
