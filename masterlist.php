@@ -15,7 +15,8 @@ if (isset($_GET['action'])) {
 
     // 1. FETCH MEMBERS (Sorted A-Z, handles nulls as blanks)
     if ($_GET['action'] === 'fetch') {
-        $members = $conn->query("SELECT * FROM members ORDER BY full_name COLLATE NOCASE ASC")->fetchAll(PDO::FETCH_ASSOC);
+      $members = $conn->query(
+    "SELECT * FROM members ORDER BY full_name ASC")->fetchAll(PDO::FETCH_ASSOC);
         echo json_encode($members);
         exit;
     }
