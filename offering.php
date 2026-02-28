@@ -40,9 +40,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['global_reset_all']))
               $stmt = $conn->prepare("
     INSERT INTO offerings (member_id, offering_date, amount, event_name)
     VALUES (?, ?, ?, NULL)
-    ON DUPLICATE KEY UPDATE amount = VALUES(amount)
+    ON CONFLICT(member_id, offering_date, event_name)
+    DO UPDATE SET amount = excluded.amount
 ");
-                $stmt->execute([$member_id, $offering_date, $amount]);
+$stmt->execute([$member_id, $offering_date, $amount]);
             }
         }
     }
