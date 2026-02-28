@@ -37,12 +37,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['global_reset_all']))
             foreach ($dates as $offering_date => $amount) {
                 if ($amount === "" || !is_numeric($amount)) continue;
                 
-                $stmt = $conn->prepare("
-                    INSERT INTO offerings (member_id, offering_date, amount, event_name)
-                    VALUES (?, ?, ?, NULL)
-                    ON CONFLICT(member_id, offering_date) WHERE event_name IS NULL
-                    DO UPDATE SET amount = excluded.amount
-                ");
+              $stmt = $conn->prepare("
+    INSERT INTO offerings (member_id, offering_date, amount, event_name)
+    VALUES (?, ?, ?, NULL)
+    ON DUPLICATE KEY UPDATE amount = VALUES(amount)
+");
                 $stmt->execute([$member_id, $offering_date, $amount]);
             }
         }
