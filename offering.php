@@ -2,17 +2,13 @@
 require "auth.php";
 require "db.php";
 
-/* ===============================
-    PROTECT ADMIN PAGE
-================================ */
+/* PROTECT ADMIN */
 if (!isset($_SESSION["role"]) || $_SESSION["role"] !== "admin") {
     header("Location: login.php");
     exit;
 }
 
-/* ===============================
-    GLOBAL DELETE HANDLER
-================================ */
+/* GLOBAL DELETE HANDLER */
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['global_reset_all'])) {
     try {
         $conn->exec("DELETE FROM offerings");
@@ -22,14 +18,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['global_reset_all'])) 
     }
 }
 
-/* ===============================
-    FETCH MEMBERS
-================================ */
+/* FETCH MEMBERS */
 $members = $conn->query("SELECT id, full_name FROM members ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
 
-/* ===============================
-    GET ALL SUNDAYS OF 2026
-================================ */
+/* GET ALL SUNDAYS OF 2026 */
 $sundays = [];
 $date = new DateTime("2026-01-01");
 $date->modify("next sunday");
@@ -38,117 +30,153 @@ while ($date->format("Y") == "2026") {
     $date->modify("+7 days");
 }
 
-/* ===============================
-    SAVE DATA LOGIC (MANUAL UPSERT)
-================================ */
+/* SAVE DATA LOGIC */
 if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['global_reset_all'])) {
-    // 1. Handling Sunday Offerings
-    if (!empty($_POST["offering"])) {
-        foreach ($_POST["offering"] as $member_id => $dates) {
-            foreach ($dates as $offering_date => $amount) {
-                if ($amount === "" || !is_numeric($amount)) continue;
-                
-                // Check if record exists for this Sunday (event_name is NULL)
-                $check = $conn->prepare("SELECT id FROM offerings WHERE member_id = ? AND offering_date = ? AND event_name IS NULL");
-                $check->execute([$member_id, $offering_date]);
-                $exists = $check->fetch();
-
-                if ($exists) {
-                    $stmt = $conn->prepare("UPDATE offerings SET amount = ? WHERE id = ?");
-                    $stmt->execute([$amount, $exists['id']]);
-                } else {
-                    $stmt = $conn->prepare("INSERT INTO offerings (member_id, offering_date, amount, event_name) VALUES (?, ?, ?, NULL)");
+    try {
+        if (!empty($_POST["offering"])) {
+            foreach ($_POST["offering"] as $member_id => $dates) {
+                foreach ($dates as $offering_date => $amount) {
+                    if ($amount === "" || !is_numeric($amount)) continue;
+                    
+                    // FIXED: Target only member_id and offering_date based on your schema
+                    $stmt = $conn->prepare("
+                        INSERT INTO offerings (member_id, offering_date, amount, event_name)
+                        VALUES (?, ?, ?, NULL)
+                        ON CONFLICT(member_id, offering_date)
+                        DO UPDATE SET amount = excluded.amount, event_name = NULL
+                    ");
                     $stmt->execute([$member_id, $offering_date, $amount]);
                 }
             }
         }
-    }
 
-    // 2. Handling Special Event Offerings
-    if (!empty($_POST["event_name"]) && !empty($_POST["event_date"])) {
-        $event_name = $_POST["event_name"];
-        $event_date = $_POST["event_date"];
-        foreach ($_POST["special"] ?? [] as $member_id => $amount) {
-            if ($amount === "" || !is_numeric($amount)) continue;
-            
-            $check = $conn->prepare("SELECT id FROM offerings WHERE member_id = ? AND offering_date = ? AND event_name = ?");
-            $check->execute([$member_id, $event_date, $event_name]);
-            $exists = $check->fetch();
-
-            if ($exists) {
-                $stmt = $conn->prepare("UPDATE offerings SET amount = ? WHERE id = ?");
-                $stmt->execute([$amount, $exists['id']]);
-            } else {
-                $stmt = $conn->prepare("INSERT INTO offerings (member_id, offering_date, amount, event_name) VALUES (?, ?, ?, ?)");
+        if (!empty($_POST["event_name"]) && !empty($_POST["event_date"])) {
+            $event_name = $_POST["event_name"];
+            $event_date = $_POST["event_date"];
+            foreach ($_POST["special"] ?? [] as $member_id => $amount) {
+                if ($amount === "" || !is_numeric($amount)) continue;
+                
+                // FIXED: Added ON CONFLICT to special events as well
+                $stmt = $conn->prepare("
+                    INSERT INTO offerings (member_id, offering_date, amount, event_name) 
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(member_id, offering_date)
+                    DO UPDATE SET amount = excluded.amount, event_name = excluded.event_name
+                ");
                 $stmt->execute([$member_id, $event_date, $amount, $event_name]);
             }
         }
+        $success = "✅ Offerings saved successfully!";
+    } catch (Exception $e) {
+        $error = "❌ Database Error: " . $e->getMessage();
     }
-    $success = "✅ Offerings saved successfully!";
 }
 
-/* ===============================
-    FETCH EXISTING DATA FOR DISPLAY
-================================ */
+/* FETCH EXISTING DATA */
 $existing = [];
 $stmt = $conn->query("SELECT * FROM offerings WHERE event_name IS NULL");
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     $existing[$row["member_id"]][$row["offering_date"]] = $row["amount"];
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Offerings 2026</title>
-    <style>
-        * { box-sizing: border-box; font-family: "Segoe UI", Arial, sans-serif; }
-        body { margin: 0; background: #eef7ff; color: #333; }
-        
-        .header { 
-            background: linear-gradient(135deg, #4db8ff, #6fd3ff); 
-            padding: 16px 20px; color: white; 
-            display: flex; justify-content: space-between; align-items: center; 
-            position: sticky; top: 0; z-index: 1000; 
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
-        }
-        .header-btns { display: flex; gap: 10px; }
-        .header a, .btn-danger-top { color: white; text-decoration: none; font-weight: bold; padding: 8px 12px; border-radius: 8px; font-size: 13px; border: none; cursor: pointer; transition: 0.2s; }
-        .btn-nav { background: rgba(0,0,0,0.1); }
-        .btn-danger-top { background: #d32f2f; }
-        
-        .container { padding: 20px; max-width: 1400px; margin: auto; }
-        .card { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); margin-bottom: 25px; }
-        h2 { color: #0088cc; border-left: 5px solid #4db8ff; padding-left: 10px; margin-top: 0; }
-        
-        .table-wrap { width: 100%; max-height: 70vh; overflow: auto; border: 1px solid #eee; border-radius: 10px; }
-        table { border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 1200px; width: 100%; }
-        th, td { padding: 10px; border-bottom: 1px solid #eee; border-right: 1px solid #f0f0f0; text-align: center; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Offerings 2026</title>
+<style>
+    * { box-sizing: border-box; font-family: "Segoe UI", Arial, sans-serif; }
+    body { margin: 0; background: #eef7ff; color: #333; }
+    
+    /* Header UI */
+    .header { 
+        background: linear-gradient(135deg, #4db8ff, #6fd3ff); 
+        padding: 16px 20px; color: white; 
+        display: flex; justify-content: space-between; align-items: center; 
+        position: sticky; top: 0; z-index: 1000; 
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+    }
+    .header-btns { display: flex; gap: 10px; }
+    .header a, .btn-danger-top { color: white; text-decoration: none; font-weight: bold; padding: 8px 12px; border-radius: 8px; font-size: 13px; border: none; cursor: pointer; transition: 0.2s; }
+    .btn-nav { background: rgba(0,0,0,0.1); }
+    .btn-danger-top { background: #d32f2f; }
+    
+    .container { padding: 20px; max-width: 1400px; margin: auto; }
+    .card { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); margin-bottom: 25px; }
+    h2 { color: #0088cc; border-left: 5px solid #4db8ff; padding-left: 10px; margin-top: 0; }
+    
+    /* FIX: Scrollable Table Container */
+    .table-wrap { 
+        width: 100%; 
+        max-height: 70vh; 
+        overflow: auto; 
+        border: 1px solid #eee; 
+        border-radius: 10px; 
+    }
 
-        th { background: #f0f8ff; position: sticky; top: 0; z-index: 100; border-bottom: 2px solid #4db8ff; }
-        .sticky-name { position: sticky; left: 0; background: white; z-index: 110; text-align: left !important; font-weight: bold; border-right: 2px solid #eef7ff; min-width: 180px; }
-        th.sticky-name { z-index: 120; background: #f0f8ff; top: 0; }
-        
-        tr.selected td, tr.selected .sticky-name { background-color: #d1ecff !important; }
-        tr:hover td:not(.sticky-name) { background-color: #f5fbff; }
-        
-        input { padding: 6px; border-radius: 6px; border: 1px solid #ccc; width: 85px; text-align: center; }
-        .btn-save { padding: 14px 25px; border: none; border-radius: 12px; background: #2e7d32; color: white; font-weight: bold; cursor: pointer; width: 100%; font-size: 16px; margin-top: 15px; transition: 0.3s; }
-        .btn-save:hover { background: #1b5e20; transform: translateY(-2px); }
-        
-        .msg { padding: 15px; border-radius: 10px; margin-bottom: 20px; text-align: center; font-weight: bold; border: 1px solid #ccc; }
-        .success { background: #e8f5e9; color: #2e7d32; border-color: #c8e6c9; }
-        .error { background: #ffebee; color: #c62828; border-color: #ef9a9a; }
-    </style>
+    /* FIX: Borders in Sticky Mode */
+    table { 
+        border-collapse: separate; 
+        border-spacing: 0; 
+        font-size: 13px; 
+        min-width: 1200px; 
+        width: 100%; 
+    }
+    
+    th, td { 
+        padding: 10px; 
+        border-bottom: 1px solid #eee; 
+        border-right: 1px solid #f0f0f0;
+        text-align: center; 
+    }
+
+    /* FIX: Sticky Headers (Dates) */
+    th { 
+        background: #f0f8ff; 
+        position: sticky; 
+        top: 0; 
+        z-index: 100; 
+        border-bottom: 2px solid #4db8ff; 
+    }
+    
+    /* FIX: Sticky Name Column */
+    .sticky-name { 
+        position: sticky; 
+        left: 0; 
+        background: white; 
+        z-index: 110; 
+        text-align: left !important; 
+        font-weight: bold; 
+        border-right: 2px solid #eef7ff; 
+        min-width: 180px; 
+    }
+
+    th.sticky-name { 
+        z-index: 120; 
+        background: #f0f8ff; 
+        top: 0; 
+    }
+    
+    tr.selected td { background-color: #d1ecff !important; }
+    tr.selected .sticky-name { background-color: #d1ecff !important; }
+    tr:hover td:not(.sticky-name) { background-color: #f5fbff; }
+    
+    input { padding: 6px; border-radius: 6px; border: 1px solid #ccc; width: 75px; text-align: center; }
+    input:focus { border-color: #4db8ff; outline: none; background: #fff; box-shadow: 0 0 5px rgba(77,184,255,0.3); }
+    
+    .btn-save { padding: 14px 25px; border: none; border-radius: 12px; background: #2e7d32; color: white; font-weight: bold; cursor: pointer; width: 100%; font-size: 16px; margin-top: 15px; transition: 0.3s; }
+    .btn-save:hover { background: #1b5e20; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+    
+    .success { background: #e8f5e9; color: #2e7d32; padding: 15px; border-radius: 10px; margin-bottom: 20px; text-align: center; font-weight: bold; border: 1px solid #c8e6c9; }
+</style>
 </head>
 <body>
 
 <div class="header">
     <div>❄ 2026 Offerings Dashboard</div>
     <div class="header-btns">
-        <form method="post" onsubmit="return confirm('CRITICAL: Delete ALL records?')">
+        <form method="post" onsubmit="return confirmGlobalReset()">
             <input type="hidden" name="global_reset_all" value="1">
             <button type="submit" class="btn-danger-top">⚠️ Reset All Data</button>
         </form>
@@ -157,11 +185,13 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
 </div>
 
 <div class="container">
-    <?php if (isset($success)) echo "<div class='msg success'>$success</div>"; ?>
-    <?php if (isset($error)) echo "<div class='msg error'>$error</div>"; ?>
+    <?php if (isset($success)) echo "<div class='success'>$success</div>"; ?>
+    <?php if (isset($error)) echo "<div class='success' style='background:#ffebee; color:#c62828; border-color:#ef9a9a;'>$error</div>"; ?>
     
     <div class="card">
         <h2>Sunday Offerings (2026)</h2>
+        <p style="font-size: 0.8rem; color: #666; margin-bottom: 15px;">* Scroll inside the box to see more dates. Names and Dates are locked while scrolling.</p>
+        
         <form method="post" onsubmit="cleanForm(this)">
             <div class="table-wrap">
                 <table>
@@ -197,8 +227,8 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     <div class="card">
         <h2>Special Event Offering</h2>
         <form method="post" onsubmit="cleanForm(this)">
-            <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items:center;">
-                <input type="text" name="event_name" placeholder="Event Name" required style="width: 250px; text-align:left;">
+            <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items:center; flex-wrap:wrap;">
+                <input type="text" name="event_name" placeholder="Event Name (e.g. Youth Camp)" required style="width: 250px; text-align:left;">
                 <input type="date" name="event_date" required style="width: 150px;">
             </div>
             <div class="table-wrap">
@@ -233,9 +263,18 @@ function cleanForm(f){
         if(i.value === "") i.disabled = true;
     }); 
 }
+
 function toggleRow(r, e){ 
     if(!e.ctrlKey) document.querySelectorAll('tr.selected').forEach(x => x.classList.remove('selected')); 
     r.classList.toggle('selected'); 
+}
+
+function confirmGlobalReset() {
+    const first = confirm("🛑 CRITICAL WARNING: This will permanently delete EVERY offering record in the system. Proceed?");
+    if (first) {
+        return confirm("FINAL CONFIRMATION: Are you absolutely sure?");
+    }
+    return false;
 }
 </script>
 </body>
