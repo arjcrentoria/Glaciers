@@ -28,6 +28,7 @@ if (isset($_GET['action'])) {
                 SUM(CASE WHEN type = 'OUT' THEN amount ELSE 0 END) AS total_out
             FROM audit_logs
         ")->fetch(PDO::FETCH_ASSOC);
+        $totals['total_offering'] = $conn->query("SELECT IFNULL(SUM(amount),0) FROM offerings")->fetchColumn();
         echo json_encode(['records' => $records, 'totals' => $totals]);
         exit;
     }
@@ -108,6 +109,7 @@ if (isset($_GET['action'])) {
     <div class="card">
         <div class="form-grid" style="text-align: center;" id="summaryContainer">
             <div><label>Total In</label><div class="in-amt" id="sumIn">₱0.00</div></div>
+            <div><label>Total Offering</label><div class="in-amt" id="sumOffering">₱0.00</div></div>
             <div><label>Total Out</label><div class="out-amt" id="sumOut">₱0.00</div></div>
             <div><label>Current Balance</label><div style="font-weight:bold; font-size:18px;" id="sumBalance">₱0.00</div></div>
         </div>
@@ -173,8 +175,12 @@ async function refreshData() {
         const data = await response.json();
         
         // Render Summary
-        const balance = (data.totals.total_in || 0) - (data.totals.total_out || 0);
+        const totalIn = parseFloat(data.totals.total_in || 0);
+        const totalOffering = parseFloat(data.totals.total_offering || 0);
+        const totalOut = parseFloat(data.totals.total_out || 0);
+        const balance = totalIn + totalOffering - totalOut;
         document.getElementById('sumIn').innerText = '₱' + parseFloat(data.totals.total_in || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
+        document.getElementById('sumOffering').innerText = '₱' + totalOffering.toLocaleString(undefined, {minimumFractionDigits: 2});
         document.getElementById('sumOut').innerText = '₱' + parseFloat(data.totals.total_out || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
         document.getElementById('sumBalance').innerText = '₱' + balance.toLocaleString(undefined, {minimumFractionDigits: 2});
 

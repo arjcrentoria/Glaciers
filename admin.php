@@ -53,8 +53,18 @@ $offerings = $conn->query("
     GROUP BY m.id
 ")->fetchAll(PDO::FETCH_KEY_PAIR);
 
-// 3. Grand Total Offering
-$total_offering_all = $conn->query("SELECT IFNULL(SUM(amount),0) FROM offerings")->fetchColumn();
+// 3. Offering Totals
+$offering_totals = $conn->query("
+    SELECT
+        IFNULL(SUM(CASE WHEN payment_method = 'GCash' THEN amount ELSE 0 END),0) AS gcash,
+        IFNULL(SUM(CASE WHEN payment_method != 'GCash' THEN amount ELSE 0 END),0) AS cash,
+        IFNULL(SUM(amount),0) AS total
+    FROM offerings
+")->fetch(PDO::FETCH_ASSOC);
+
+$total_offering_gcash = $offering_totals["gcash"] ?? 0;
+$total_offering_cash = $offering_totals["cash"] ?? 0;
+$total_offering_all = $offering_totals["total"] ?? 0;
 
 // 4. Financial Audit Totals
 $audit = $conn->query("
@@ -66,7 +76,7 @@ $audit = $conn->query("
 
 $audit_in  = $audit["total_in"] ?? 0;
 $audit_out = $audit["total_out"] ?? 0;
-$audit_balance = $audit_in - $audit_out;
+$audit_balance = $audit_in + $total_offering_all - $audit_out;
 
 // 5. Special Events Logic (FIXED SORTING)
 $events_list = $conn->query("
@@ -248,17 +258,27 @@ summary:hover { background: var(--highlight); }
 
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 25px;">
         <div class="card">
-            <h2>Total Offering (All)</h2>
+            <h2>Total Offering</h2>
             <h3 style="font-size: 2.2rem; color: var(--success); margin: 10px 0;">₱<?= number_format($total_offering_all, 2) ?></h3>
+            <div class="table-wrap">
+                <table style="min-width: 100%;">
+                    <tr><th>Cash</th><th>GCash</th></tr>
+                    <tr>
+                        <td>₱<?= number_format($total_offering_cash, 2) ?></td>
+                        <td>₱<?= number_format($total_offering_gcash, 2) ?></td>
+                    </tr>
+                </table>
+            </div>
         </div>
 
         <div class="card">
             <h2>Financial Audit Status</h2>
             <div class="table-wrap">
                 <table style="min-width: 100%;">
-                    <tr><th>Total In</th><th>Total Out</th><th>Balance</th></tr>
+                    <tr><th>Total In</th><th>Total Offering</th><th>Total Out</th><th>Balance</th></tr>
                     <tr>
                         <td class="in">₱<?= number_format($audit_in, 2) ?></td>
+                        <td class="in">₱<?= number_format($total_offering_all, 2) ?></td>
                         <td class="out">₱<?= number_format($audit_out, 2) ?></td>
                         <td style="font-size: 1.2rem; font-weight: 900;">₱<?= number_format($audit_balance, 2) ?></td>
                     </tr>

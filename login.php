@@ -13,7 +13,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $stmt->execute([$username]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($user && $password === $user["password"]) {
+    $validPassword = $user && (
+        password_verify($password, $user["password"])
+        || hash_equals($user["password"], $password)
+    );
+
+    if ($validPassword) {
         $_SESSION["user_id"] = $user["id"];
         $_SESSION["role"] = $user["role"];
         header("Location: admin.php");

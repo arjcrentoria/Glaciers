@@ -8,6 +8,11 @@ if (!isset($_SESSION["role"]) || $_SESSION["role"] !== "admin") {
     exit;
 }
 
+function cleanPaymentMethod(string $method): string
+{
+    return strtoupper($method) === "GCASH" ? "GCash" : "Cash";
+}
+
 /* GLOBAL DELETE HANDLER */
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['global_reset_all'])) {
     try {
@@ -37,15 +42,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['global_reset_all']))
             foreach ($_POST["offering"] as $member_id => $dates) {
                 foreach ($dates as $offering_date => $amount) {
                     if ($amount === "" || !is_numeric($amount)) continue;
+                    $payment_method = cleanPaymentMethod($_POST["payment_method"][$member_id][$offering_date] ?? "Cash");
                     
-                    // FIXED: Target only member_id and offering_date based on your schema
                     $stmt = $conn->prepare("
-                        INSERT INTO offerings (member_id, offering_date, amount, event_name)
-                        VALUES (?, ?, ?, NULL)
+                        INSERT INTO offerings (member_id, offering_date, amount, payment_method, event_name)
+                        VALUES (?, ?, ?, ?, NULL)
                         ON CONFLICT(member_id, offering_date)
-                        DO UPDATE SET amount = excluded.amount, event_name = NULL
+                        DO UPDATE SET
+                            amount = excluded.amount,
+                            payment_method = excluded.payment_method,
+                            event_name = NULL
                     ");
-                    $stmt->execute([$member_id, $offering_date, $amount]);
+                    $stmt->execute([$member_id, $offering_date, $amount, $payment_method]);
                 }
             }
         }
@@ -55,15 +63,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['global_reset_all']))
             $event_date = $_POST["event_date"];
             foreach ($_POST["special"] ?? [] as $member_id => $amount) {
                 if ($amount === "" || !is_numeric($amount)) continue;
+                $payment_method = cleanPaymentMethod($_POST["special_method"][$member_id] ?? "Cash");
                 
-                // FIXED: Added ON CONFLICT to special events as well
                 $stmt = $conn->prepare("
-                    INSERT INTO offerings (member_id, offering_date, amount, event_name) 
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO offerings (member_id, offering_date, amount, payment_method, event_name) 
+                    VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(member_id, offering_date)
-                    DO UPDATE SET amount = excluded.amount, event_name = excluded.event_name
+                    DO UPDATE SET
+                        amount = excluded.amount,
+                        payment_method = excluded.payment_method,
+                        event_name = excluded.event_name
                 ");
-                $stmt->execute([$member_id, $event_date, $amount, $event_name]);
+                $stmt->execute([$member_id, $event_date, $amount, $payment_method, $event_name]);
             }
         }
         $success = "✅ Offerings saved successfully!";
@@ -76,7 +87,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['global_reset_all']))
 $existing = [];
 $stmt = $conn->query("SELECT * FROM offerings WHERE event_name IS NULL");
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-    $existing[$row["member_id"]][$row["offering_date"]] = $row["amount"];
+    $existing[$row["member_id"]][$row["offering_date"]] = [
+        "amount" => $row["amount"],
+        "payment_method" => $row["payment_method"] ?? "Cash"
+    ];
 }
 ?>
 <!DOCTYPE html>
@@ -120,7 +134,7 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         border-collapse: separate; 
         border-spacing: 0; 
         font-size: 13px; 
-        min-width: 1200px; 
+        min-width: 1500px; 
         width: 100%; 
     }
     
@@ -162,8 +176,10 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
     tr.selected .sticky-name { background-color: #d1ecff !important; }
     tr:hover td:not(.sticky-name) { background-color: #f5fbff; }
     
-    input { padding: 6px; border-radius: 6px; border: 1px solid #ccc; width: 75px; text-align: center; }
-    input:focus { border-color: #4db8ff; outline: none; background: #fff; box-shadow: 0 0 5px rgba(77,184,255,0.3); }
+    input, select { padding: 6px; border-radius: 6px; border: 1px solid #ccc; text-align: center; }
+    input:focus, select:focus { border-color: #4db8ff; outline: none; background: #fff; box-shadow: 0 0 5px rgba(77,184,255,0.3); }
+    .amount-input { width: 80px; }
+    .method-select { width: 78px; margin-top: 5px; font-size: 12px; background: #fff; }
     
     .btn-save { padding: 14px 25px; border: none; border-radius: 12px; background: #2e7d32; color: white; font-weight: bold; cursor: pointer; width: 100%; font-size: 16px; margin-top: 15px; transition: 0.3s; }
     .btn-save:hover { background: #1b5e20; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
@@ -209,10 +225,15 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
                             <td class="sticky-name"><?= htmlspecialchars($m["full_name"]) ?></td>
                             <?php foreach ($sundays as $d): ?>
                             <td>
-                                <input type="number" step="0.01" 
-                                       name="offering[<?= $m["id"] ?>][<?= $d ?>]" 
-                                       value="<?= $existing[$m["id"]][$d] ?? "" ?>" 
+                                <input type="number" step="0.01" class="amount-input"
+                                       name="offering[<?= $m["id"] ?>][<?= $d ?>]"
+                                       value="<?= htmlspecialchars($existing[$m["id"]][$d]["amount"] ?? "") ?>"
                                        onclick="event.stopPropagation()">
+                                <?php $method = $existing[$m["id"]][$d]["payment_method"] ?? "Cash"; ?>
+                                <select class="method-select" name="payment_method[<?= $m["id"] ?>][<?= $d ?>]" onclick="event.stopPropagation()">
+                                    <option value="Cash" <?= $method === "Cash" ? "selected" : "" ?>>Cash</option>
+                                    <option value="GCash" <?= $method === "GCash" ? "selected" : "" ?>>GCash</option>
+                                </select>
                             </td>
                             <?php endforeach; ?>
                         </tr>
@@ -237,6 +258,7 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
                         <tr>
                             <th class="sticky-name">Name</th>
                             <th>Amount</th>
+                            <th>Method</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -245,7 +267,13 @@ foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
                             <td class="sticky-name"><?= htmlspecialchars($m["full_name"]) ?></td>
                             <td>
                                 <input type="number" step="0.01" name="special[<?= $m["id"] ?>]" 
-                                       style="width: 150px;" onclick="event.stopPropagation()">
+                                       class="amount-input" style="width: 150px;" onclick="event.stopPropagation()">
+                            </td>
+                            <td>
+                                <select class="method-select" name="special_method[<?= $m["id"] ?>]" style="width: 120px;" onclick="event.stopPropagation()">
+                                    <option value="Cash">Cash</option>
+                                    <option value="GCash">GCash</option>
+                                </select>
                             </td>
                         </tr>
                         <?php endforeach; ?>
